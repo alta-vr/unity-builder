@@ -31,7 +31,14 @@ describe('BuildAutomationWorkflow', () => {
     const commands = getBuildCommands(0);
 
     expect(commands).toContain('Orchestrator soft timeout disabled');
-    expect(commands).toContain('/entrypoint.sh; # no soft-timeout notice');
+    expect(commands).toContain('/entrypoint.sh; BUILD_EXIT_CODE=$?; # no soft-timeout notice');
     expect(commands).not.toContain('timeout 0m /entrypoint.sh');
+  });
+
+  it('caps soft timeout to 360 minutes when configured above allowed max', () => {
+    const commands = getBuildCommands(999);
+
+    expect(commands).toContain('Orchestrator soft timeout enabled: 360 minute(s)');
+    expect(commands).toContain('timeout 360m /entrypoint.sh');
   });
 });
