@@ -272,7 +272,7 @@ class BuildParameters {
         if (input_1.default.unityLicensingServer === '') {
             if (!input_1.default.unitySerial && github_1.default.githubInputEnabled) {
                 // No serial was present, so it is a personal license that we need to convert
-                if (!input_1.default.unityLicense && orchestrator_options_1.default.inputPullCommand === '') {
+                if (!input_1.default.unityLicense && !orchestrator_options_1.default.inputPullCommand) {
                     throw new Error(`Missing Unity License File and no Serial was found. If this
                             is a personal license, make sure to follow the activation
                             steps and set the UNITY_LICENSE GitHub secret or enter a Unity
