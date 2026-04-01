@@ -207,6 +207,12 @@ describe('BuildParameters', () => {
       await expect(BuildParameters.create()).rejects.toThrowError();
     });
 
+    it('does not throw when input override command is configured and no unity license provider provided', async () => {
+      delete process.env.UNITY_LICENSE; // Need to delete this as it is set for every test currently
+      jest.spyOn(OrchestratorOptions, 'inputPullCommand', 'get').mockReturnValue('aws-secret-manager');
+      await expect(BuildParameters.create()).resolves.not.toThrow();
+    });
+
     it('return serial when no license server is provided', async () => {
       const mockValue = '123';
       delete process.env.UNITY_LICENSE; // Need to delete this as it is set for every test currently
