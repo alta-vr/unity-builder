@@ -82,6 +82,10 @@ class OrchestratorOptions {
     return OrchestratorOptions.getInput('cloneDepth') || '50';
   }
 
+  static get orchestratorSoftTimeoutMinutes(): string {
+    return OrchestratorOptions.getInput('orchestratorSoftTimeoutMinutes') || '0';
+  }
+
   static get finalHooks(): string[] {
     return OrchestratorOptions.getInput('finalHooks')?.split(',') || [];
   }

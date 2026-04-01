@@ -86,6 +86,7 @@ class BuildParameters {
   public githubRepo!: string;
   public orchestratorRepoName!: string;
   public cloneDepth!: number;
+  public orchestratorSoftTimeoutMinutes!: number;
   public gitSha!: string;
   public logId!: string;
   public buildGuid!: string;
@@ -211,6 +212,7 @@ class BuildParameters {
       githubRepo: (Input.githubRepo ?? (await GitRepoReader.GetRemote())) || OrchestratorOptions.orchestratorRepoName,
       orchestratorRepoName: OrchestratorOptions.orchestratorRepoName,
       cloneDepth: Number.parseInt(OrchestratorOptions.cloneDepth),
+      orchestratorSoftTimeoutMinutes: Number.parseInt(OrchestratorOptions.orchestratorSoftTimeoutMinutes),
       isCliMode: Cli.isCliMode,
       awsStackName: OrchestratorOptions.awsStackName,
       awsEndpoint: OrchestratorOptions.awsEndpoint,

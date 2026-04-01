@@ -135,6 +135,19 @@ echo "CACHE_KEY=$CACHE_KEY"`;
     const distFolder = path.join(OrchestratorFolders.builderPathAbsolute, 'dist');
     const ubuntuPlatformsFolder = path.join(OrchestratorFolders.builderPathAbsolute, 'dist', 'platforms', 'ubuntu');
 
+    const softTimeoutMinutes = Orchestrator.buildParameters.orchestratorSoftTimeoutMinutes;
+    const buildInvocationCommand = `/entrypoint.sh`;
+    const timedBuildCommand =
+      softTimeoutMinutes > 0 ? `timeout ${softTimeoutMinutes}m ${buildInvocationCommand}` : buildInvocationCommand;
+    const buildTimeoutLogPrefix =
+      softTimeoutMinutes > 0
+        ? `echo "Orchestrator soft timeout enabled: ${softTimeoutMinutes} minute(s)"`
+        : `echo "Orchestrator soft timeout disabled"`;
+    const buildTimeoutNoticeCommand =
+      softTimeoutMinutes > 0
+        ? `if [ $? -eq 124 ]; then echo "Orchestrator soft timeout reached after ${softTimeoutMinutes} minute(s); proceeding to post-build cache persistence"; fi`
+        : `# no soft-timeout notice`;
+
     if (isContainerized) {
       if (Orchestrator.buildParameters.providerStrategy === 'local-docker') {
         // prettier-ignore
@@ -169,7 +182,7 @@ echo "CACHE_KEY=$CACHE_KEY"`;
     if ! command -v n > /dev/null 2>&1; then printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/n && chmod +x /usr/local/bin/n; fi
     if ! command -v yarn > /dev/null 2>&1; then printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/yarn && chmod +x /usr/local/bin/yarn; fi
     # Pipe entrypoint.sh output through log stream to capture Unity build output (including "Build succeeded")
-    { echo "game ci start"; echo "game ci start" >> /home/job-log.txt; echo "CACHE_KEY=$CACHE_KEY"; echo "$CACHE_KEY"; if [ -n "$LOCKED_WORKSPACE" ]; then echo "Retained Workspace: true"; fi; if [ -n "$LOCKED_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/.git" ]; then echo "Retained Workspace Already Exists!"; fi; /entrypoint.sh; } | node ${builderPath} -m remote-cli-log-stream --logFile /home/job-log.txt
+    { echo "game ci start"; echo "game ci start" >> /home/job-log.txt; echo "CACHE_KEY=$CACHE_KEY"; echo "$CACHE_KEY"; if [ -n "$LOCKED_WORKSPACE" ]; then echo "Retained Workspace: true"; fi; if [ -n "$LOCKED_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/.git" ]; then echo "Retained Workspace Already Exists!"; fi; ${buildTimeoutLogPrefix}; ${timedBuildCommand}; ${buildTimeoutNoticeCommand}; } | node ${builderPath} -m remote-cli-log-stream --logFile /home/job-log.txt
     mkdir -p "/data/cache/$CACHE_KEY/Library"
     if [ ! -f "/data/cache/$CACHE_KEY/Library/lib-$BUILD_GUID.tar" ] && [ ! -f "/data/cache/$CACHE_KEY/Library/lib-$BUILD_GUID.tar.lz4" ]; then
       tar -cf "/data/cache/$CACHE_KEY/Library/lib-$BUILD_GUID.tar" --files-from /dev/null || touch "/data/cache/$CACHE_KEY/Library/lib-$BUILD_GUID.tar"
@@ -218,7 +231,7 @@ echo "CACHE_KEY=$CACHE_KEY"`;
     cp -r "${OrchestratorFolders.ToLinuxFolder(path.join(ubuntuPlatformsFolder, 'steps'))}" "/steps"
     chmod -R +x "/entrypoint.sh"
     chmod -R +x "/steps"
-    { echo "game ci start"; echo "game ci start" >> /home/job-log.txt; echo "CACHE_KEY=$CACHE_KEY"; echo "$CACHE_KEY"; if [ -n "$LOCKED_WORKSPACE" ]; then echo "Retained Workspace: true"; fi; if [ -n "$LOCKED_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/.git" ]; then echo "Retained Workspace Already Exists!"; fi; /entrypoint.sh; } | node ${builderPath} -m remote-cli-log-stream --logFile /home/job-log.txt
+    { echo "game ci start"; echo "game ci start" >> /home/job-log.txt; echo "CACHE_KEY=$CACHE_KEY"; echo "$CACHE_KEY"; if [ -n "$LOCKED_WORKSPACE" ]; then echo "Retained Workspace: true"; fi; if [ -n "$LOCKED_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/.git" ]; then echo "Retained Workspace Already Exists!"; fi; ${buildTimeoutLogPrefix}; ${timedBuildCommand}; ${buildTimeoutNoticeCommand}; } | node ${builderPath} -m remote-cli-log-stream --logFile /home/job-log.txt
     # Run post-build and capture output to both stdout (for kubectl logs) and log file
     # Note: Post-build may clean up the builder directory, so write output directly
     set +e
