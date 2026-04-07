@@ -17,6 +17,60 @@ import { AwsClientFactory } from './aws-client-factory';
 class AWSTaskRunner {
   private static readonly encodedUnderscore = `$252F`;
 
+  private static serializedLength(value: unknown): number {
+    const serialized = JSON.stringify(value);
+
+    return serialized?.length ?? 0;
+  }
+
+  private static isSensitiveEnvironmentName(name: string): boolean {
+    return /(token|secret|password|key|license|serial|email)/i.test(name);
+  }
+
+  private static getContainerOverrideSizeSummary(containerOverrides: unknown[]) {
+    return containerOverrides.map((override, index) => {
+      const containerOverride = override as {
+        name?: string;
+        environment?: Array<{ name: string; value?: unknown }>;
+        command?: string[];
+      };
+
+      const environment = containerOverride.environment ?? [];
+      const largestEnvironmentEntries = [...environment]
+        .map((entry, entryIndex) => {
+          const sensitive = AWSTaskRunner.isSensitiveEnvironmentName(entry.name);
+
+          return {
+            entry: {
+              name: sensitive ? `[redacted:${entryIndex}]` : entry.name,
+              sensitive,
+              valueLength: typeof entry.value === 'string' ? entry.value.length : `${entry.value ?? ''}`.length,
+              serializedLength: AWSTaskRunner.serializedLength(entry),
+            },
+            serializedLength: AWSTaskRunner.serializedLength(entry),
+          };
+        })
+        .sort((left, right) => right.serializedLength - left.serializedLength)
+        .slice(0, 10)
+        .map((entry) => entry.entry);
+
+      return {
+        index,
+        name: containerOverride.name,
+        totalSerializedLength: AWSTaskRunner.serializedLength(containerOverride),
+        nameSerializedLength: AWSTaskRunner.serializedLength(containerOverride.name),
+        commandSerializedLength: AWSTaskRunner.serializedLength(containerOverride.command),
+        commandSegmentCount: containerOverride.command?.length ?? 0,
+        commandStringLength: containerOverride.command?.join(' ')?.length ?? 0,
+        environmentSerializedLength: AWSTaskRunner.serializedLength(environment),
+        environmentCount: environment.length,
+        sensitiveEnvironmentCount: environment.filter((entry) => AWSTaskRunner.isSensitiveEnvironmentName(entry.name))
+          .length,
+        largestEnvironmentEntries,
+      };
+    });
+  }
+
   /**
    * Transform localhost endpoints to host.docker.internal for container environments.
    * When LocalStack is used, ECS tasks run in Docker containers that need to reach
@@ -105,7 +159,19 @@ class AWSTaskRunner {
     };
 
     if (JSON.stringify(runParameters.overrides.containerOverrides).length > 8192) {
-      OrchestratorLogger.log(JSON.stringify(runParameters.overrides.containerOverrides, undefined, 4));
+      OrchestratorLogger.log(
+        `ECS containerOverrides size summary: ${JSON.stringify(
+          {
+            limit: 8192,
+            totalSerializedLength: AWSTaskRunner.serializedLength(runParameters.overrides.containerOverrides),
+            containerOverrides: AWSTaskRunner.getContainerOverrideSizeSummary(
+              runParameters.overrides.containerOverrides,
+            ),
+          },
+          undefined,
+          2,
+        )}`,
+      );
       throw new Error(`Container Overrides length must be at most 8192`);
     }
 
