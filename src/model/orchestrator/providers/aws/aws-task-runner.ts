@@ -129,11 +129,9 @@ class AWSTaskRunner {
     // Transform localhost endpoints for container environment
     const transformedEnvironment = AWSTaskRunner.transformEndpointsForContainer(environment);
 
-    // Merge secrets into environment as plain env vars, matching docker and k8s provider behavior.
-    // This ensures UNITY_EMAIL, UNITY_PASSWORD, UNITY_SERIAL reach the container reliably
-    // without depending on CloudFormation Secrets Manager resolution.
-    const secretsAsEnvironment = secrets.map((s) => ({ name: s.EnvironmentVariable, value: s.ParameterValue }));
-    const mergedEnvironment = [...transformedEnvironment, ...secretsAsEnvironment];
+    // AWS injects task definition secrets separately via Secrets Manager references,
+    // so do not duplicate them into container overrides.
+    const mergedEnvironment = transformedEnvironment;
 
     const runParameters = {
       cluster,
@@ -164,6 +162,7 @@ class AWSTaskRunner {
           {
             limit: 8192,
             totalSerializedLength: AWSTaskRunner.serializedLength(runParameters.overrides.containerOverrides),
+            taskDefinitionSecretCount: secrets.length,
             containerOverrides: AWSTaskRunner.getContainerOverrideSizeSummary(
               runParameters.overrides.containerOverrides,
             ),

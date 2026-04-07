@@ -3417,7 +3417,8 @@ class AWSTaskRunner {
                 commandStringLength: containerOverride.command?.join(' ')?.length ?? 0,
                 environmentSerializedLength: AWSTaskRunner.serializedLength(environment),
                 environmentCount: environment.length,
-                sensitiveEnvironmentCount: environment.filter((entry) => AWSTaskRunner.isSensitiveEnvironmentName(entry.name)).length,
+                sensitiveEnvironmentCount: environment.filter((entry) => AWSTaskRunner.isSensitiveEnvironmentName(entry.name))
+                    .length,
                 largestEnvironmentEntries,
             };
         });
@@ -3461,11 +3462,9 @@ class AWSTaskRunner {
         const streamName = taskDef.taskDefResources?.find((x) => x.LogicalResourceId === 'KinesisStream')?.PhysicalResourceId || '';
         // Transform localhost endpoints for container environment
         const transformedEnvironment = AWSTaskRunner.transformEndpointsForContainer(environment);
-        // Merge secrets into environment as plain env vars, matching docker and k8s provider behavior.
-        // This ensures UNITY_EMAIL, UNITY_PASSWORD, UNITY_SERIAL reach the container reliably
-        // without depending on CloudFormation Secrets Manager resolution.
-        const secretsAsEnvironment = secrets.map((s) => ({ name: s.EnvironmentVariable, value: s.ParameterValue }));
-        const mergedEnvironment = [...transformedEnvironment, ...secretsAsEnvironment];
+        // AWS injects task definition secrets separately via Secrets Manager references,
+        // so do not duplicate them into container overrides.
+        const mergedEnvironment = transformedEnvironment;
         const runParameters = {
             cluster,
             taskDefinition,
@@ -3492,6 +3491,7 @@ class AWSTaskRunner {
             orchestrator_logger_1.default.log(`ECS containerOverrides size summary: ${JSON.stringify({
                 limit: 8192,
                 totalSerializedLength: AWSTaskRunner.serializedLength(runParameters.overrides.containerOverrides),
+                taskDefinitionSecretCount: secrets.length,
                 containerOverrides: AWSTaskRunner.getContainerOverrideSizeSummary(runParameters.overrides.containerOverrides),
             }, undefined, 2)}`);
             throw new Error(`Container Overrides length must be at most 8192`);
