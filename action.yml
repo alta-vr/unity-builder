@@ -182,8 +182,8 @@ inputs:
     required: false
     default: ''
     description:
-      '[Orchestrator] Run a custom job instead of the standard build automation for orchestrator (in yaml format with the
-      keys image, secrets (name, value object array), command line string)'
+      '[Orchestrator] Run a custom job instead of the standard build automation for orchestrator (in yaml format with
+      the keys image, secrets (name, value object array), command line string)'
   awsStackName:
     default: 'game-ci'
     required: false
@@ -273,6 +273,12 @@ inputs:
     default: '50'
     required: false
     description: '[Orchestrator] Specifies the depth of the git clone for the repository. Use 0 for full clone.'
+  orchestratorTimeout:
+    default: '0'
+    required: false
+    description:
+      '[Orchestrator] Timeout in minutes for /entrypoint.sh when using orchestrator providers. Clamped to 0..360; 0
+      disables timeout.'
   orchestratorRepoName:
     default: 'game-ci/unity-builder'
     required: false

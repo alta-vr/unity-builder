@@ -7,7 +7,7 @@ color: true
 extends: {}
 
 pre-commit:
-  parallel: true
+  parallel: false
   commands:
     format documents:
       glob: '*.{md,mdx}'

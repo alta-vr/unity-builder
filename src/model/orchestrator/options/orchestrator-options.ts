@@ -2,6 +2,7 @@ import { Cli } from '../../cli/cli';
 import OrchestratorQueryOverride from './orchestrator-query-override';
 import GitHub from '../../github';
 import * as core from '@actions/core';
+import OrchestratorConstants from './orchestrator-constants';
 
 class OrchestratorOptions {
   // ### ### ###
@@ -148,6 +149,21 @@ class OrchestratorOptions {
 
   static get containerNamespace(): string {
     return OrchestratorOptions.getInput('containerNamespace') || `default`;
+  }
+
+  static get orchestratorTimeout(): number {
+    const input = OrchestratorOptions.getInput('orchestratorTimeout');
+    const timeout =
+      input === undefined ? OrchestratorConstants.orchestratorTimeoutMinMinutes : Number.parseInt(input, 10);
+
+    if (Number.isNaN(timeout)) {
+      return OrchestratorConstants.orchestratorTimeoutMinMinutes;
+    }
+
+    return Math.max(
+      OrchestratorConstants.orchestratorTimeoutMinMinutes,
+      Math.min(timeout, OrchestratorConstants.orchestratorTimeoutMaxMinutes),
+    );
   }
 
   static get customJob(): string {

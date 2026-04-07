@@ -68,6 +68,7 @@ class BuildParameters {
   public containerMemory!: string;
   public containerCpu!: string;
   public containerNamespace!: string;
+  public orchestratorTimeout!: number;
   public kubeVolumeSize!: string;
   public kubeVolume!: string;
   public kubeStorageClass!: string;
@@ -199,6 +200,7 @@ class BuildParameters {
       containerMemory: OrchestratorOptions.containerMemory,
       containerCpu: OrchestratorOptions.containerCpu,
       containerNamespace: OrchestratorOptions.containerNamespace,
+      orchestratorTimeout: OrchestratorOptions.orchestratorTimeout,
       kubeVolumeSize: OrchestratorOptions.kubeVolumeSize,
       kubeVolume: OrchestratorOptions.kubeVolume,
       postBuildContainerHooks: OrchestratorOptions.postBuildContainerHooks,
