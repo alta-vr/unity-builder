@@ -9968,12 +9968,9 @@ echo "CACHE_KEY=$CACHE_KEY"`;
     if ! command -v npm > /dev/null 2>&1; then printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/npm && chmod +x /usr/local/bin/npm; fi
     if ! command -v n > /dev/null 2>&1; then printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/n && chmod +x /usr/local/bin/n; fi
     if ! command -v yarn > /dev/null 2>&1; then printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/yarn && chmod +x /usr/local/bin/yarn; fi
-    BUILD_EXIT_CODE_FILE="/tmp/game-ci-build-exit-code"
     ORCHESTRATOR_TIMEOUT_MINUTES="${orchestrator_1.default.buildParameters.orchestratorTimeout}"
-    rm -f "$BUILD_EXIT_CODE_FILE"
-    # Pipe entrypoint.sh output through log stream to capture Unity build output (including "Build succeeded")
-    { echo "game ci start"; echo "game ci start" >> /home/job-log.txt; echo "CACHE_KEY=$CACHE_KEY"; echo "$CACHE_KEY"; if [ -n "$LOCKED_WORKSPACE" ]; then echo "Retained Workspace: true"; fi; if [ -n "$LOCKED_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/.git" ]; then echo "Retained Workspace Already Exists!"; fi; if [ "$ORCHESTRATOR_TIMEOUT_MINUTES" -gt 0 ]; then timeout "\${ORCHESTRATOR_TIMEOUT_MINUTES}m" /entrypoint.sh; else /entrypoint.sh; fi; BUILD_EXIT_CODE=$?; if [ "$BUILD_EXIT_CODE" -eq 124 ]; then echo "Orchestrator timeout reached after $ORCHESTRATOR_TIMEOUT_MINUTES minute(s). Continuing with post-build cache and hooks."; fi; echo "$BUILD_EXIT_CODE" > "$BUILD_EXIT_CODE_FILE"; exit "$BUILD_EXIT_CODE"; } | node ${builderPath} -m remote-cli-log-stream --logFile /home/job-log.txt
-    BUILD_EXIT_CODE=$(cat "$BUILD_EXIT_CODE_FILE" 2>/dev/null || echo 1)
+    /steps/run_build_with_timeout.sh "${builderPath}" "/home/job-log.txt"
+    BUILD_EXIT_CODE=$?
     mkdir -p "/data/cache/$CACHE_KEY/Library"
     if [ ! -f "/data/cache/$CACHE_KEY/Library/lib-$BUILD_GUID.tar" ] && [ ! -f "/data/cache/$CACHE_KEY/Library/lib-$BUILD_GUID.tar.lz4" ]; then
       tar -cf "/data/cache/$CACHE_KEY/Library/lib-$BUILD_GUID.tar" --files-from /dev/null || touch "/data/cache/$CACHE_KEY/Library/lib-$BUILD_GUID.tar"
@@ -10022,11 +10019,9 @@ echo "CACHE_KEY=$CACHE_KEY"`;
     cp -r "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(ubuntuPlatformsFolder, 'steps'))}" "/steps"
     chmod -R +x "/entrypoint.sh"
     chmod -R +x "/steps"
-    BUILD_EXIT_CODE_FILE="/tmp/game-ci-build-exit-code"
     ORCHESTRATOR_TIMEOUT_MINUTES="${orchestrator_1.default.buildParameters.orchestratorTimeout}"
-    rm -f "$BUILD_EXIT_CODE_FILE"
-    { echo "game ci start"; echo "game ci start" >> /home/job-log.txt; echo "CACHE_KEY=$CACHE_KEY"; echo "$CACHE_KEY"; if [ -n "$LOCKED_WORKSPACE" ]; then echo "Retained Workspace: true"; fi; if [ -n "$LOCKED_WORKSPACE" ] && [ -d "$GITHUB_WORKSPACE/.git" ]; then echo "Retained Workspace Already Exists!"; fi; if [ "$ORCHESTRATOR_TIMEOUT_MINUTES" -gt 0 ]; then timeout "\${ORCHESTRATOR_TIMEOUT_MINUTES}m" /entrypoint.sh; else /entrypoint.sh; fi; BUILD_EXIT_CODE=$?; if [ "$BUILD_EXIT_CODE" -eq 124 ]; then echo "Orchestrator timeout reached after $ORCHESTRATOR_TIMEOUT_MINUTES minute(s). Continuing with post-build cache and hooks."; fi; echo "$BUILD_EXIT_CODE" > "$BUILD_EXIT_CODE_FILE"; exit "$BUILD_EXIT_CODE"; } | node ${builderPath} -m remote-cli-log-stream --logFile /home/job-log.txt
-    BUILD_EXIT_CODE=$(cat "$BUILD_EXIT_CODE_FILE" 2>/dev/null || echo 1)
+    /steps/run_build_with_timeout.sh "${builderPath}" "/home/job-log.txt"
+    BUILD_EXIT_CODE=$?
     # Run post-build and capture output to both stdout (for kubectl logs) and log file
     # Note: Post-build may clean up the builder directory, so write output directly
     set +e
