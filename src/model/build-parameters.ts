@@ -208,7 +208,7 @@ class BuildParameters {
       customJob: OrchestratorOptions.customJob,
       runNumber: Input.runNumber,
       branch: Input.branch.replace('/head', '') || (await GitRepoReader.GetBranch()),
-      orchestratorBranch: OrchestratorOptions.orchestratorBranch.split('/').reverse()[0],
+      orchestratorBranch: OrchestratorOptions.orchestratorBranch,
       orchestratorDebug: OrchestratorOptions.orchestratorDebug,
       githubRepo: (Input.githubRepo ?? (await GitRepoReader.GetRemote())) || OrchestratorOptions.orchestratorRepoName,
       orchestratorRepoName: OrchestratorOptions.orchestratorRepoName,

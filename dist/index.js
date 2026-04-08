@@ -340,7 +340,7 @@ class BuildParameters {
             customJob: orchestrator_options_1.default.customJob,
             runNumber: input_1.default.runNumber,
             branch: input_1.default.branch.replace('/head', '') || (await git_repo_1.GitRepoReader.GetBranch()),
-            orchestratorBranch: orchestrator_options_1.default.orchestratorBranch.split('/').reverse()[0],
+            orchestratorBranch: orchestrator_options_1.default.orchestratorBranch,
             orchestratorDebug: orchestrator_options_1.default.orchestratorDebug,
             githubRepo: (input_1.default.githubRepo ?? (await git_repo_1.GitRepoReader.GetRemote())) || orchestrator_options_1.default.orchestratorRepoName,
             orchestratorRepoName: orchestrator_options_1.default.orchestratorRepoName,
