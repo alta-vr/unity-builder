@@ -103,6 +103,14 @@ else
     || git clone -q -b main "$REPO" "$DEST" \
     || git clone -q "$REPO" "$DEST"
 fi
+[ -f "${builderPath}" ] || {
+  echo "Builder runtime missing at ${builderPath}"
+  echo "Builder repo: $REPO"
+  echo "Builder branch: $BRANCH"
+  ls -la "$DEST" || true
+  ls -la "$DEST/dist" || true
+  exit 1
+}
 chmod +x ${builderPath}`;
 
     if (isContainerized) {

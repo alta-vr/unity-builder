@@ -9916,6 +9916,14 @@ else
     || git clone -q -b main "$REPO" "$DEST" \
     || git clone -q "$REPO" "$DEST"
 fi
+[ -f "${builderPath}" ] || {
+  echo "Builder runtime missing at ${builderPath}"
+  echo "Builder repo: $REPO"
+  echo "Builder branch: $BRANCH"
+  ls -la "$DEST" || true
+  ls -la "$DEST/dist" || true
+  exit 1
+}
 chmod +x ${builderPath}`;
         if (isContainerized) {
             const cloneBuilderCommands = `if [ -e "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(orchestrator_folders_1.OrchestratorFolders.uniqueOrchestratorJobFolderAbsolute)}" ] && [ -e "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(orchestrator_folders_1.OrchestratorFolders.builderPathAbsolute, `.git`))}" ] ; then echo "Builder Already Exists!" && (command -v tree > /dev/null 2>&1 && tree ${orchestrator_folders_1.OrchestratorFolders.builderPathAbsolute} || ls -la ${orchestrator_folders_1.OrchestratorFolders.builderPathAbsolute}); else ${commands} ; fi`;

@@ -285,6 +285,10 @@ inputs:
     description:
       '[Orchestrator] Specifies the repo for the unity builder. Useful if you forked the repo for testing, features, or
       fixes.'
+  orchestratorBranch:
+    default: 'main'
+    required: false
+    description: '[Orchestrator] Specifies the branch for the unity builder repo when cloning the in-container builder.'
 
 outputs:
   volume:
