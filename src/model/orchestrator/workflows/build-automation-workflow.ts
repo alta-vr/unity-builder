@@ -144,7 +144,8 @@ echo "CACHE_KEY=$CACHE_KEY"`;
     cd "$GITHUB_WORKSPACE/${Orchestrator.buildParameters.projectPath}"
     cp -r "${OrchestratorFolders.ToLinuxFolder(path.join(distFolder, 'default-build-script'))}" "/UnityBuilderAction"
     cp -r "${OrchestratorFolders.ToLinuxFolder(path.join(ubuntuPlatformsFolder, 'entrypoint.sh'))}" "/entrypoint.sh"
-    cp -r "${OrchestratorFolders.ToLinuxFolder(path.join(ubuntuPlatformsFolder, 'steps'))}" "/steps"
+    mkdir -p "/steps"
+    cp -r "${OrchestratorFolders.ToLinuxFolder(path.join(ubuntuPlatformsFolder, 'steps'))}/." "/steps"
     chmod -R +x "/entrypoint.sh"
     chmod -R +x "/steps"
     # Ensure Git LFS files are available inside the container for local-docker runs
@@ -217,7 +218,8 @@ echo "CACHE_KEY=$CACHE_KEY"`;
     cd ${OrchestratorFolders.ToLinuxFolder(OrchestratorFolders.projectPathAbsolute)}
     cp -r "${OrchestratorFolders.ToLinuxFolder(path.join(distFolder, 'default-build-script'))}" "/UnityBuilderAction"
     cp -r "${OrchestratorFolders.ToLinuxFolder(path.join(ubuntuPlatformsFolder, 'entrypoint.sh'))}" "/entrypoint.sh"
-    cp -r "${OrchestratorFolders.ToLinuxFolder(path.join(ubuntuPlatformsFolder, 'steps'))}" "/steps"
+    mkdir -p "/steps"
+    cp -r "${OrchestratorFolders.ToLinuxFolder(path.join(ubuntuPlatformsFolder, 'steps'))}/." "/steps"
     chmod -R +x "/entrypoint.sh"
     chmod -R +x "/steps"
     ORCHESTRATOR_TIMEOUT_MINUTES="${Orchestrator.buildParameters.orchestratorTimeout}"

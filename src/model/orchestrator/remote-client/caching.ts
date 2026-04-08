@@ -408,10 +408,10 @@ export class Caching {
         try {
           let tarExtractCommand = `tar -xf ${cacheSelection}.tar${compressionSuffix} -C ${fullResultsFolder}`;
 
-          // Add timeout if available (600 seconds = 10 minutes)
+          // Add timeout if available (1800 seconds = 30 minutes)
           try {
             await OrchestratorSystem.Run(`which timeout > /dev/null 2>&1`, true, true);
-            tarExtractCommand = `timeout 600 ${tarExtractCommand}`;
+            tarExtractCommand = `timeout 1800 ${tarExtractCommand}`;
           } catch {
             // timeout command not available, use regular tar
           }

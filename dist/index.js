@@ -7720,10 +7720,10 @@ class Caching {
                 // Extract with timeout to prevent infinite hangs
                 try {
                     let tarExtractCommand = `tar -xf ${cacheSelection}.tar${compressionSuffix} -C ${fullResultsFolder}`;
-                    // Add timeout if available (600 seconds = 10 minutes)
+                    // Add timeout if available (1800 seconds = 30 minutes)
                     try {
                         await orchestrator_system_1.OrchestratorSystem.Run(`which timeout > /dev/null 2>&1`, true, true);
-                        tarExtractCommand = `timeout 600 ${tarExtractCommand}`;
+                        tarExtractCommand = `timeout 1800 ${tarExtractCommand}`;
                     }
                     catch {
                         // timeout command not available, use regular tar
@@ -9944,7 +9944,8 @@ echo "CACHE_KEY=$CACHE_KEY"`;
     cd "$GITHUB_WORKSPACE/${orchestrator_1.default.buildParameters.projectPath}"
     cp -r "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(distFolder, 'default-build-script'))}" "/UnityBuilderAction"
     cp -r "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(ubuntuPlatformsFolder, 'entrypoint.sh'))}" "/entrypoint.sh"
-    cp -r "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(ubuntuPlatformsFolder, 'steps'))}" "/steps"
+    mkdir -p "/steps"
+    cp -r "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(ubuntuPlatformsFolder, 'steps'))}/." "/steps"
     chmod -R +x "/entrypoint.sh"
     chmod -R +x "/steps"
     # Ensure Git LFS files are available inside the container for local-docker runs
@@ -10016,7 +10017,8 @@ echo "CACHE_KEY=$CACHE_KEY"`;
     cd ${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(orchestrator_folders_1.OrchestratorFolders.projectPathAbsolute)}
     cp -r "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(distFolder, 'default-build-script'))}" "/UnityBuilderAction"
     cp -r "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(ubuntuPlatformsFolder, 'entrypoint.sh'))}" "/entrypoint.sh"
-    cp -r "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(ubuntuPlatformsFolder, 'steps'))}" "/steps"
+    mkdir -p "/steps"
+    cp -r "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(ubuntuPlatformsFolder, 'steps'))}/." "/steps"
     chmod -R +x "/entrypoint.sh"
     chmod -R +x "/steps"
     ORCHESTRATOR_TIMEOUT_MINUTES="${orchestrator_1.default.buildParameters.orchestratorTimeout}"
