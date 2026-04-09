@@ -66,18 +66,25 @@ export class AWSJobStack {
         TaskDefinitionFormation.streamLogs,
       );
     }
-    for (const secret of secrets) {
-      secret.ParameterKey = `${buildGuid.replace(/[^\dA-Za-z]/g, '')}${secret.ParameterKey.replace(
-        /[^\dA-Za-z]/g,
-        '',
-      )}`;
-      if (typeof secret.ParameterValue == 'number') {
-        secret.ParameterValue = `${secret.ParameterValue}`;
+    const normalizedSecrets = secrets.flatMap((secret) => {
+      const parameterKey = `${buildGuid.replace(/[^\dA-Za-z]/g, '')}${secret.ParameterKey.replace(/[^\dA-Za-z]/g, '')}`;
+      const parameterValue =
+        typeof secret.ParameterValue === 'number' ? `${secret.ParameterValue}` : secret.ParameterValue;
+
+      if (!parameterValue || parameterValue === '') {
+        return [];
       }
-      if (!secret.ParameterValue || secret.ParameterValue === '') {
-        secrets = secrets.filter((x) => x !== secret);
-        continue;
-      }
+
+      return [
+        {
+          ...secret,
+          ParameterKey: parameterKey,
+          ParameterValue: parameterValue,
+        },
+      ];
+    });
+
+    for (const secret of normalizedSecrets) {
       taskDefCloudFormation = AWSCloudFormationTemplates.insertAtTemplate(
         taskDefCloudFormation,
         'p1 - input',
@@ -88,13 +95,18 @@ export class AWSJobStack {
         '# template resources secrets',
         AWSCloudFormationTemplates.getSecretTemplate(`${secret.ParameterKey}`),
       );
-      taskDefCloudFormation = AWSCloudFormationTemplates.insertAtTemplate(
-        taskDefCloudFormation,
-        'p3 - container def',
-        AWSCloudFormationTemplates.getSecretDefinitionTemplate(secret.EnvironmentVariable, secret.ParameterKey),
-      );
     }
-    const secretsMappedToCloudFormationParameters = secrets.map((x) => {
+    taskDefCloudFormation = AWSCloudFormationTemplates.insertAtTemplate(
+      taskDefCloudFormation,
+      'p3 - container def',
+      AWSCloudFormationTemplates.getSecretDefinitionEntriesTemplate(
+        normalizedSecrets.map((secret) => ({
+          environmentVariable: secret.EnvironmentVariable,
+          parameterKey: secret.ParameterKey,
+        })),
+      ),
+    );
+    const secretsMappedToCloudFormationParameters = normalizedSecrets.map((x) => {
       return { ParameterKey: x.ParameterKey.replace(/[^\dA-Za-z]/g, ''), ParameterValue: x.ParameterValue };
     });
     const logGroupName = `${this.baseStackName}/${taskDefStackName}`;

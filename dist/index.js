@@ -3053,6 +3053,18 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.AWSCloudFormationTemplates = void 0;
 const task_definition_formation_1 = __nccwpck_require__(36570);
 class AWSCloudFormationTemplates {
+    static getSecretDefinitionEntriesTemplate(secretDefinitions) {
+        if (secretDefinitions.length === 0) {
+            return '';
+        }
+        const secretEntries = secretDefinitions
+            .map(({ environmentVariable, parameterKey }) => `            - Name: '${environmentVariable}'\n              ValueFrom: !Ref ${parameterKey}Secret`)
+            .join('\n');
+        return `
+          Secrets:
+${secretEntries}
+`;
+    }
     static getParameterTemplate(p1) {
         return `
   ${p1}:
@@ -3067,13 +3079,6 @@ class AWSCloudFormationTemplates {
     Properties:
       Name: '${p1}'
       SecretString: !Ref ${p1}
-`;
-    }
-    static getSecretDefinitionTemplate(p1, p2) {
-        return `
-          Secrets:
-            - Name: '${p1}'
-              ValueFrom: !Ref ${p2}Secret
 `;
     }
     static insertAtTemplate(template, insertionKey, insertion) {
@@ -3185,20 +3190,29 @@ class AWSJobStack {
         if (!orchestrator_options_1.default.asyncOrchestrator) {
             taskDefCloudFormation = aws_cloud_formation_templates_1.AWSCloudFormationTemplates.insertAtTemplate(taskDefCloudFormation, '# template resources logstream', task_definition_formation_1.TaskDefinitionFormation.streamLogs);
         }
-        for (const secret of secrets) {
-            secret.ParameterKey = `${buildGuid.replace(/[^\dA-Za-z]/g, '')}${secret.ParameterKey.replace(/[^\dA-Za-z]/g, '')}`;
-            if (typeof secret.ParameterValue == 'number') {
-                secret.ParameterValue = `${secret.ParameterValue}`;
+        const normalizedSecrets = secrets.flatMap((secret) => {
+            const parameterKey = `${buildGuid.replace(/[^\dA-Za-z]/g, '')}${secret.ParameterKey.replace(/[^\dA-Za-z]/g, '')}`;
+            const parameterValue = typeof secret.ParameterValue === 'number' ? `${secret.ParameterValue}` : secret.ParameterValue;
+            if (!parameterValue || parameterValue === '') {
+                return [];
             }
-            if (!secret.ParameterValue || secret.ParameterValue === '') {
-                secrets = secrets.filter((x) => x !== secret);
-                continue;
-            }
+            return [
+                {
+                    ...secret,
+                    ParameterKey: parameterKey,
+                    ParameterValue: parameterValue,
+                },
+            ];
+        });
+        for (const secret of normalizedSecrets) {
             taskDefCloudFormation = aws_cloud_formation_templates_1.AWSCloudFormationTemplates.insertAtTemplate(taskDefCloudFormation, 'p1 - input', aws_cloud_formation_templates_1.AWSCloudFormationTemplates.getParameterTemplate(secret.ParameterKey));
             taskDefCloudFormation = aws_cloud_formation_templates_1.AWSCloudFormationTemplates.insertAtTemplate(taskDefCloudFormation, '# template resources secrets', aws_cloud_formation_templates_1.AWSCloudFormationTemplates.getSecretTemplate(`${secret.ParameterKey}`));
-            taskDefCloudFormation = aws_cloud_formation_templates_1.AWSCloudFormationTemplates.insertAtTemplate(taskDefCloudFormation, 'p3 - container def', aws_cloud_formation_templates_1.AWSCloudFormationTemplates.getSecretDefinitionTemplate(secret.EnvironmentVariable, secret.ParameterKey));
         }
-        const secretsMappedToCloudFormationParameters = secrets.map((x) => {
+        taskDefCloudFormation = aws_cloud_formation_templates_1.AWSCloudFormationTemplates.insertAtTemplate(taskDefCloudFormation, 'p3 - container def', aws_cloud_formation_templates_1.AWSCloudFormationTemplates.getSecretDefinitionEntriesTemplate(normalizedSecrets.map((secret) => ({
+            environmentVariable: secret.EnvironmentVariable,
+            parameterKey: secret.ParameterKey,
+        }))));
+        const secretsMappedToCloudFormationParameters = normalizedSecrets.map((x) => {
             return { ParameterKey: x.ParameterKey.replace(/[^\dA-Za-z]/g, ''), ParameterValue: x.ParameterValue };
         });
         const logGroupName = `${this.baseStackName}/${taskDefStackName}`;
@@ -3387,30 +3401,12 @@ class AWSTaskRunner {
     static isSensitiveEnvironmentName(name) {
         return /(token|secret|password|key|license|serial|email)/i.test(name);
     }
-    static shouldDuplicateSecretAsEnvironment(secret) {
-        return AWSTaskRunner.activationSecretEnvironmentNames.has(secret.EnvironmentVariable);
-    }
-    static mergeEnvironmentVariables(environment, secrets) {
-        const mergedEnvironment = new Map();
-        for (const variable of environment) {
-            mergedEnvironment.set(variable.name, variable.value);
-        }
-        for (const secret of secrets.filter((entry) => AWSTaskRunner.shouldDuplicateSecretAsEnvironment(entry))) {
-            mergedEnvironment.set(secret.EnvironmentVariable, secret.ParameterValue);
-        }
-        return [...mergedEnvironment.entries()].map(([name, value]) => ({ name, value }));
-    }
     static getOverridesSizeSummary(overrides, secrets) {
-        const duplicatedSecrets = secrets
-            .filter((entry) => AWSTaskRunner.shouldDuplicateSecretAsEnvironment(entry))
-            .map((entry) => entry.EnvironmentVariable);
         return {
             limit: AWSTaskRunner.maxContainerOverridesLength,
             overridesSerializedLength: AWSTaskRunner.serializedLength(overrides),
             containerOverridesSerializedLength: AWSTaskRunner.serializedLength(overrides.containerOverrides),
             taskDefinitionSecretCount: secrets.length,
-            duplicatedSecretEnvironmentNames: duplicatedSecrets,
-            duplicatedSecretCount: duplicatedSecrets.length,
             containerOverrides: AWSTaskRunner.getContainerOverrideSizeSummary(overrides.containerOverrides),
         };
     }
@@ -3489,14 +3485,10 @@ class AWSTaskRunner {
         const streamName = taskDef.taskDefResources?.find((x) => x.LogicalResourceId === 'KinesisStream')?.PhysicalResourceId || '';
         // Transform localhost endpoints for container environment
         const transformedEnvironment = AWSTaskRunner.transformEndpointsForContainer(environment);
-        // Only duplicate the Unity activation secrets into overrides.
-        // ECS task-definition secret injection handles the rest, and keeping this list narrow
-        // avoids hitting the 8192-byte override limit.
-        const mergedEnvironment = AWSTaskRunner.mergeEnvironmentVariables(transformedEnvironment, secrets);
         const containerOverrides = [
             {
                 name: taskDef.taskDefStackName,
-                environment: mergedEnvironment,
+                environment: transformedEnvironment,
                 command: ['-c', command_hook_service_1.CommandHookService.ApplyHooksToCommands(commands, orchestrator_1.default.buildParameters)],
             },
         ];
@@ -3693,12 +3685,6 @@ class AWSTaskRunner {
 AWSTaskRunner.encodedUnderscore = `$252F`;
 AWSTaskRunner.maxContainerOverridesLength = 8192;
 AWSTaskRunner.containerOverridesWarningLength = 7000;
-AWSTaskRunner.activationSecretEnvironmentNames = new Set([
-    'UNITY_EMAIL',
-    'UNITY_PASSWORD',
-    'UNITY_SERIAL',
-    'UNITY_LICENSE',
-]);
 exports["default"] = AWSTaskRunner;
 
 

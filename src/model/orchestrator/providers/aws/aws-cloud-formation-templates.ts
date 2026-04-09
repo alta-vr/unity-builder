@@ -1,6 +1,26 @@
 import { TaskDefinitionFormation } from './cloud-formations/task-definition-formation';
 
 export class AWSCloudFormationTemplates {
+  public static getSecretDefinitionEntriesTemplate(
+    secretDefinitions: Array<{ environmentVariable: string; parameterKey: string }>,
+  ) {
+    if (secretDefinitions.length === 0) {
+      return '';
+    }
+
+    const secretEntries = secretDefinitions
+      .map(
+        ({ environmentVariable, parameterKey }) =>
+          `            - Name: '${environmentVariable}'\n              ValueFrom: !Ref ${parameterKey}Secret`,
+      )
+      .join('\n');
+
+    return `
+          Secrets:
+${secretEntries}
+`;
+  }
+
   public static getParameterTemplate(p1: string) {
     return `
   ${p1}:
@@ -16,14 +36,6 @@ export class AWSCloudFormationTemplates {
     Properties:
       Name: '${p1}'
       SecretString: !Ref ${p1}
-`;
-  }
-
-  public static getSecretDefinitionTemplate(p1: string, p2: string) {
-    return `
-          Secrets:
-            - Name: '${p1}'
-              ValueFrom: !Ref ${p2}Secret
 `;
   }
 

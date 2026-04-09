@@ -18,12 +18,6 @@ class AWSTaskRunner {
   private static readonly encodedUnderscore = `$252F`;
   private static readonly maxContainerOverridesLength = 8192;
   private static readonly containerOverridesWarningLength = 7000;
-  private static readonly activationSecretEnvironmentNames = new Set([
-    'UNITY_EMAIL',
-    'UNITY_PASSWORD',
-    'UNITY_SERIAL',
-    'UNITY_LICENSE',
-  ]);
 
   private static serializedLength(value: unknown): number {
     const serialized = JSON.stringify(value);
@@ -35,39 +29,12 @@ class AWSTaskRunner {
     return /(token|secret|password|key|license|serial|email)/i.test(name);
   }
 
-  private static shouldDuplicateSecretAsEnvironment(secret: OrchestratorSecret): boolean {
-    return AWSTaskRunner.activationSecretEnvironmentNames.has(secret.EnvironmentVariable);
-  }
-
-  private static mergeEnvironmentVariables(
-    environment: OrchestratorEnvironmentVariable[],
-    secrets: OrchestratorSecret[],
-  ): Array<{ name: string; value: string }> {
-    const mergedEnvironment = new Map<string, string>();
-
-    for (const variable of environment) {
-      mergedEnvironment.set(variable.name, variable.value);
-    }
-
-    for (const secret of secrets.filter((entry) => AWSTaskRunner.shouldDuplicateSecretAsEnvironment(entry))) {
-      mergedEnvironment.set(secret.EnvironmentVariable, secret.ParameterValue);
-    }
-
-    return [...mergedEnvironment.entries()].map(([name, value]) => ({ name, value }));
-  }
-
   private static getOverridesSizeSummary(overrides: { containerOverrides: unknown[] }, secrets: OrchestratorSecret[]) {
-    const duplicatedSecrets = secrets
-      .filter((entry) => AWSTaskRunner.shouldDuplicateSecretAsEnvironment(entry))
-      .map((entry) => entry.EnvironmentVariable);
-
     return {
       limit: AWSTaskRunner.maxContainerOverridesLength,
       overridesSerializedLength: AWSTaskRunner.serializedLength(overrides),
       containerOverridesSerializedLength: AWSTaskRunner.serializedLength(overrides.containerOverrides),
       taskDefinitionSecretCount: secrets.length,
-      duplicatedSecretEnvironmentNames: duplicatedSecrets,
-      duplicatedSecretCount: duplicatedSecrets.length,
       containerOverrides: AWSTaskRunner.getContainerOverrideSizeSummary(overrides.containerOverrides),
     };
   }
@@ -174,14 +141,10 @@ class AWSTaskRunner {
     // Transform localhost endpoints for container environment
     const transformedEnvironment = AWSTaskRunner.transformEndpointsForContainer(environment);
 
-    // Only duplicate the Unity activation secrets into overrides.
-    // ECS task-definition secret injection handles the rest, and keeping this list narrow
-    // avoids hitting the 8192-byte override limit.
-    const mergedEnvironment = AWSTaskRunner.mergeEnvironmentVariables(transformedEnvironment, secrets);
     const containerOverrides = [
       {
         name: taskDef.taskDefStackName,
-        environment: mergedEnvironment,
+        environment: transformedEnvironment,
         command: ['-c', CommandHookService.ApplyHooksToCommands(commands, Orchestrator.buildParameters)],
       },
     ];
