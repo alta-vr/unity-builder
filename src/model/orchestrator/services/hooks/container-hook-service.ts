@@ -49,9 +49,11 @@ export class ContainerHookService {
       fi
       ENDPOINT_ARGS=""
       if [ -n "$AWS_S3_ENDPOINT" ]; then ENDPOINT_ARGS="--endpoint-url $AWS_S3_ENDPOINT"; fi
-      aws $ENDPOINT_ARGS s3 cp /data/cache/$CACHE_KEY/build/build-${Orchestrator.buildParameters.buildGuid}.tar${
-        Orchestrator.buildParameters.useCompressionStrategy ? '.lz4' : ''
-      } s3://${Orchestrator.buildParameters.awsStackName}/orchestrator-cache/$CACHE_KEY/build/build-$BUILD_GUID.tar${
+      aws $ENDPOINT_ARGS s3 cp --no-progress --only-show-errors /data/cache/$CACHE_KEY/build/build-${
+        Orchestrator.buildParameters.buildGuid
+      }.tar${Orchestrator.buildParameters.useCompressionStrategy ? '.lz4' : ''} s3://${
+        Orchestrator.buildParameters.awsStackName
+      }/orchestrator-cache/$CACHE_KEY/build/build-$BUILD_GUID.tar${
         Orchestrator.buildParameters.useCompressionStrategy ? '.lz4' : ''
       } || true
       rm /data/cache/$CACHE_KEY/build/build-${Orchestrator.buildParameters.buildGuid}.tar${
@@ -87,7 +89,7 @@ export class ContainerHookService {
       if [ -n "$AWS_S3_ENDPOINT" ]; then ENDPOINT_ARGS="--endpoint-url $AWS_S3_ENDPOINT"; fi
       aws $ENDPOINT_ARGS s3 ls ${Orchestrator.buildParameters.awsStackName}/orchestrator-cache/ || true
       aws $ENDPOINT_ARGS s3 ls ${Orchestrator.buildParameters.awsStackName}/orchestrator-cache/$CACHE_KEY/build || true
-      aws s3 cp s3://${
+      aws $ENDPOINT_ARGS s3 cp --no-progress --only-show-errors s3://${
         Orchestrator.buildParameters.awsStackName
       }/orchestrator-cache/$CACHE_KEY/build/build-$BUILD_GUID_TARGET.tar${
         Orchestrator.buildParameters.useCompressionStrategy ? '.lz4' : ''
@@ -155,11 +157,11 @@ export class ContainerHookService {
       fi
       ENDPOINT_ARGS=""
       if [ -n "$AWS_S3_ENDPOINT" ]; then ENDPOINT_ARGS="--endpoint-url $AWS_S3_ENDPOINT"; fi
-      aws $ENDPOINT_ARGS s3 cp --recursive /data/cache/$CACHE_KEY/lfs s3://${
+      aws $ENDPOINT_ARGS s3 cp --no-progress --only-show-errors --recursive /data/cache/$CACHE_KEY/lfs s3://${
         Orchestrator.buildParameters.awsStackName
       }/orchestrator-cache/$CACHE_KEY/lfs || true
       rm -r /data/cache/$CACHE_KEY/lfs || true
-      aws $ENDPOINT_ARGS s3 cp --recursive /data/cache/$CACHE_KEY/Library s3://${
+      aws $ENDPOINT_ARGS s3 cp --no-progress --only-show-errors --recursive /data/cache/$CACHE_KEY/Library s3://${
         Orchestrator.buildParameters.awsStackName
       }/orchestrator-cache/$CACHE_KEY/Library || true
       rm -r /data/cache/$CACHE_KEY/Library || true
@@ -203,7 +205,7 @@ export class ContainerHookService {
       if [ -n "$LS_OUTPUT1" ] && [ "$LS_OUTPUT1" != "" ]; then
         OBJECT1="$(echo "$LS_OUTPUT1" | sort | tail -n 1 | awk '{print $4}' || '')"
         if [ -n "$OBJECT1" ] && [ "$OBJECT1" != "" ]; then
-          aws $ENDPOINT_ARGS s3 cp s3://$BUCKET1$OBJECT1 /data/cache/$CACHE_KEY/Library/ 2>/dev/null || true
+          aws $ENDPOINT_ARGS s3 cp --no-progress --only-show-errors s3://$BUCKET1$OBJECT1 /data/cache/$CACHE_KEY/Library/ 2>/dev/null || true
         fi
       fi
       BUCKET2="${Orchestrator.buildParameters.awsStackName}/orchestrator-cache/$CACHE_KEY/lfs/"
@@ -212,7 +214,7 @@ export class ContainerHookService {
       if [ -n "$LS_OUTPUT2" ] && [ "$LS_OUTPUT2" != "" ]; then
         OBJECT2="$(echo "$LS_OUTPUT2" | sort | tail -n 1 | awk '{print $4}' || '')"
         if [ -n "$OBJECT2" ] && [ "$OBJECT2" != "" ]; then
-          aws $ENDPOINT_ARGS s3 cp s3://$BUCKET2$OBJECT2 /data/cache/$CACHE_KEY/lfs/ 2>/dev/null || true
+          aws $ENDPOINT_ARGS s3 cp --no-progress --only-show-errors s3://$BUCKET2$OBJECT2 /data/cache/$CACHE_KEY/lfs/ 2>/dev/null || true
         fi
       fi
     else

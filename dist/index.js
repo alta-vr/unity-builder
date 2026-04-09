@@ -3387,6 +3387,33 @@ class AWSTaskRunner {
     static isSensitiveEnvironmentName(name) {
         return /(token|secret|password|key|license|serial|email)/i.test(name);
     }
+    static shouldDuplicateSecretAsEnvironment(secret) {
+        return AWSTaskRunner.activationSecretEnvironmentNames.has(secret.EnvironmentVariable);
+    }
+    static mergeEnvironmentVariables(environment, secrets) {
+        const mergedEnvironment = new Map();
+        for (const variable of environment) {
+            mergedEnvironment.set(variable.name, variable.value);
+        }
+        for (const secret of secrets.filter((entry) => AWSTaskRunner.shouldDuplicateSecretAsEnvironment(entry))) {
+            mergedEnvironment.set(secret.EnvironmentVariable, secret.ParameterValue);
+        }
+        return [...mergedEnvironment.entries()].map(([name, value]) => ({ name, value }));
+    }
+    static getOverridesSizeSummary(overrides, secrets) {
+        const duplicatedSecrets = secrets
+            .filter((entry) => AWSTaskRunner.shouldDuplicateSecretAsEnvironment(entry))
+            .map((entry) => entry.EnvironmentVariable);
+        return {
+            limit: AWSTaskRunner.maxContainerOverridesLength,
+            overridesSerializedLength: AWSTaskRunner.serializedLength(overrides),
+            containerOverridesSerializedLength: AWSTaskRunner.serializedLength(overrides.containerOverrides),
+            taskDefinitionSecretCount: secrets.length,
+            duplicatedSecretEnvironmentNames: duplicatedSecrets,
+            duplicatedSecretCount: duplicatedSecrets.length,
+            containerOverrides: AWSTaskRunner.getContainerOverrideSizeSummary(overrides.containerOverrides),
+        };
+    }
     static getContainerOverrideSizeSummary(containerOverrides) {
         return containerOverrides.map((override, index) => {
             const containerOverride = override;
@@ -3462,24 +3489,23 @@ class AWSTaskRunner {
         const streamName = taskDef.taskDefResources?.find((x) => x.LogicalResourceId === 'KinesisStream')?.PhysicalResourceId || '';
         // Transform localhost endpoints for container environment
         const transformedEnvironment = AWSTaskRunner.transformEndpointsForContainer(environment);
-        // Merge secrets into environment as plain env vars, matching docker and k8s provider behavior.
-        // This ensures UNITY_EMAIL, UNITY_PASSWORD, UNITY_SERIAL reach the container reliably
-        // without depending on CloudFormation Secrets Manager resolution.
-        const secretsAsEnvironment = secrets.map((s) => ({ name: s.EnvironmentVariable, value: s.ParameterValue }));
-        const mergedEnvironment = [...transformedEnvironment, ...secretsAsEnvironment];
+        // Only duplicate the Unity activation secrets into overrides.
+        // ECS task-definition secret injection handles the rest, and keeping this list narrow
+        // avoids hitting the 8192-byte override limit.
+        const mergedEnvironment = AWSTaskRunner.mergeEnvironmentVariables(transformedEnvironment, secrets);
+        const containerOverrides = [
+            {
+                name: taskDef.taskDefStackName,
+                environment: mergedEnvironment,
+                command: ['-c', command_hook_service_1.CommandHookService.ApplyHooksToCommands(commands, orchestrator_1.default.buildParameters)],
+            },
+        ];
+        const overrides = { containerOverrides };
         const runParameters = {
             cluster,
             taskDefinition,
             platformVersion: '1.4.0',
-            overrides: {
-                containerOverrides: [
-                    {
-                        name: taskDef.taskDefStackName,
-                        environment: mergedEnvironment,
-                        command: ['-c', command_hook_service_1.CommandHookService.ApplyHooksToCommands(commands, orchestrator_1.default.buildParameters)],
-                    },
-                ],
-            },
+            overrides,
             launchType: 'FARGATE',
             networkConfiguration: {
                 awsvpcConfiguration: {
@@ -3489,13 +3515,11 @@ class AWSTaskRunner {
                 },
             },
         };
-        if (JSON.stringify(runParameters.overrides.containerOverrides).length > 8192) {
-            orchestrator_logger_1.default.log(`ECS containerOverrides size summary: ${JSON.stringify({
-                limit: 8192,
-                totalSerializedLength: AWSTaskRunner.serializedLength(runParameters.overrides.containerOverrides),
-                taskDefinitionSecretCount: secrets.length,
-                containerOverrides: AWSTaskRunner.getContainerOverrideSizeSummary(runParameters.overrides.containerOverrides),
-            }, undefined, 2)}`);
+        const overridesSizeSummary = AWSTaskRunner.getOverridesSizeSummary(overrides, secrets);
+        if (overridesSizeSummary.overridesSerializedLength >= AWSTaskRunner.containerOverridesWarningLength) {
+            orchestrator_logger_1.default.log(`ECS containerOverrides size summary: ${JSON.stringify(overridesSizeSummary, undefined, 2)}`);
+        }
+        if (overridesSizeSummary.overridesSerializedLength > AWSTaskRunner.maxContainerOverridesLength) {
             throw new Error(`Container Overrides length must be at most 8192`);
         }
         const task = await aws_client_factory_1.AwsClientFactory.getECS().send(new client_ecs_1.RunTaskCommand(runParameters));
@@ -3667,6 +3691,14 @@ class AWSTaskRunner {
     }
 }
 AWSTaskRunner.encodedUnderscore = `$252F`;
+AWSTaskRunner.maxContainerOverridesLength = 8192;
+AWSTaskRunner.containerOverridesWarningLength = 7000;
+AWSTaskRunner.activationSecretEnvironmentNames = new Set([
+    'UNITY_EMAIL',
+    'UNITY_PASSWORD',
+    'UNITY_SERIAL',
+    'UNITY_LICENSE',
+]);
 exports["default"] = AWSTaskRunner;
 
 
@@ -8561,6 +8593,31 @@ exports.OrchestratorSystem = void 0;
 const child_process_1 = __nccwpck_require__(32081);
 const remote_client_logger_1 = __nccwpck_require__(3540);
 class OrchestratorSystem {
+    static shouldSkipLogLine(line) {
+        return line.startsWith('Updating files:') || (line.startsWith('Completed ') && line.includes('file(s) remaining'));
+    }
+    static flushBufferedLines(buffer, suppressLogs, log, lastLoggedLine) {
+        let remaining = buffer;
+        const parts = remaining.split(/\r?\n|\r/g);
+        remaining = parts.pop() || '';
+        if (!suppressLogs) {
+            for (const part of parts) {
+                if (part === '' || part === lastLoggedLine.value || OrchestratorSystem.shouldSkipLogLine(part)) {
+                    continue;
+                }
+                log(part);
+                lastLoggedLine.value = part;
+            }
+        }
+        return remaining;
+    }
+    static flushTrailingLine(buffer, suppressLogs, log, lastLoggedLine) {
+        const line = buffer.replace(/\r/g, '');
+        if (!suppressLogs && line !== '' && line !== lastLoggedLine.value && !OrchestratorSystem.shouldSkipLogLine(line)) {
+            log(line);
+            lastLoggedLine.value = line;
+        }
+    }
     static async RunAndReadLines(command) {
         const result = await OrchestratorSystem.Run(command, false, true);
         return result
@@ -8582,36 +8639,45 @@ class OrchestratorSystem {
         }
         return await new Promise((promise, throwError) => {
             let output = '';
-            const child = (0, child_process_1.exec)(command, { maxBuffer: 1024 * 10000 }, (error, stdout, stderr) => {
-                if (!suppressError && error) {
-                    remote_client_logger_1.RemoteClientLogger.log(error.toString());
+            let stdoutBuffer = '';
+            let stderrBuffer = '';
+            const lastLoggedLine = { value: '' };
+            const child = (0, child_process_1.spawn)(command, { shell: true, stdio: ['ignore', 'pipe', 'pipe'] });
+            child.stdout.setEncoding('utf8');
+            child.stderr.setEncoding('utf8');
+            child.stdout.on('data', (chunk) => {
+                output += chunk;
+                if (outputCallback) {
+                    outputCallback(chunk);
+                }
+                stdoutBuffer += chunk;
+                stdoutBuffer = OrchestratorSystem.flushBufferedLines(stdoutBuffer, suppressLogs, (line) => remote_client_logger_1.RemoteClientLogger.log(line), lastLoggedLine);
+            });
+            child.stderr.on('data', (chunk) => {
+                output += chunk;
+                stderrBuffer += chunk;
+                stderrBuffer = OrchestratorSystem.flushBufferedLines(stderrBuffer, suppressLogs, (line) => remote_client_logger_1.RemoteClientLogger.logCliDiagnostic(line), lastLoggedLine);
+            });
+            child.on('error', (error) => {
+                if (!suppressError) {
+                    if (!suppressLogs) {
+                        remote_client_logger_1.RemoteClientLogger.log(error.toString());
+                    }
                     throwError(error);
                 }
-                if (stderr) {
-                    const diagnosticOutput = `${stderr.toString()}`;
-                    if (!suppressLogs) {
-                        remote_client_logger_1.RemoteClientLogger.logCliDiagnostic(diagnosticOutput);
-                    }
-                    output += diagnosticOutput;
+                else {
+                    promise(output);
                 }
-                const outputChunk = `${stdout}`;
-                if (outputCallback) {
-                    outputCallback(outputChunk);
-                }
-                output += outputChunk;
             });
             child.on('close', (code) => {
+                OrchestratorSystem.flushTrailingLine(stdoutBuffer, suppressLogs, (line) => remote_client_logger_1.RemoteClientLogger.log(line), lastLoggedLine);
+                OrchestratorSystem.flushTrailingLine(stderrBuffer, suppressLogs, (line) => remote_client_logger_1.RemoteClientLogger.logCliDiagnostic(line), lastLoggedLine);
                 if (!suppressLogs) {
                     remote_client_logger_1.RemoteClientLogger.log(`[${code}]`);
                 }
                 if (code !== 0 && !suppressError) {
-                    throwError(output);
-                }
-                const outputLines = output.split(`\n`);
-                for (const element of outputLines) {
-                    if (!suppressLogs) {
-                        remote_client_logger_1.RemoteClientLogger.log(element);
-                    }
+                    throwError(output || `Command failed with exit code ${code}`);
+                    return;
                 }
                 promise(output);
             });
@@ -9385,7 +9451,7 @@ class ContainerHookService {
       fi
       ENDPOINT_ARGS=""
       if [ -n "$AWS_S3_ENDPOINT" ]; then ENDPOINT_ARGS="--endpoint-url $AWS_S3_ENDPOINT"; fi
-      aws $ENDPOINT_ARGS s3 cp /data/cache/$CACHE_KEY/build/build-${orchestrator_1.default.buildParameters.buildGuid}.tar${orchestrator_1.default.buildParameters.useCompressionStrategy ? '.lz4' : ''} s3://${orchestrator_1.default.buildParameters.awsStackName}/orchestrator-cache/$CACHE_KEY/build/build-$BUILD_GUID.tar${orchestrator_1.default.buildParameters.useCompressionStrategy ? '.lz4' : ''} || true
+      aws $ENDPOINT_ARGS s3 cp --no-progress --only-show-errors /data/cache/$CACHE_KEY/build/build-${orchestrator_1.default.buildParameters.buildGuid}.tar${orchestrator_1.default.buildParameters.useCompressionStrategy ? '.lz4' : ''} s3://${orchestrator_1.default.buildParameters.awsStackName}/orchestrator-cache/$CACHE_KEY/build/build-$BUILD_GUID.tar${orchestrator_1.default.buildParameters.useCompressionStrategy ? '.lz4' : ''} || true
       rm /data/cache/$CACHE_KEY/build/build-${orchestrator_1.default.buildParameters.buildGuid}.tar${orchestrator_1.default.buildParameters.useCompressionStrategy ? '.lz4' : ''} || true
     else
       echo "AWS CLI not available, skipping aws-s3-upload-build"
@@ -9417,7 +9483,7 @@ class ContainerHookService {
       if [ -n "$AWS_S3_ENDPOINT" ]; then ENDPOINT_ARGS="--endpoint-url $AWS_S3_ENDPOINT"; fi
       aws $ENDPOINT_ARGS s3 ls ${orchestrator_1.default.buildParameters.awsStackName}/orchestrator-cache/ || true
       aws $ENDPOINT_ARGS s3 ls ${orchestrator_1.default.buildParameters.awsStackName}/orchestrator-cache/$CACHE_KEY/build || true
-      aws s3 cp s3://${orchestrator_1.default.buildParameters.awsStackName}/orchestrator-cache/$CACHE_KEY/build/build-$BUILD_GUID_TARGET.tar${orchestrator_1.default.buildParameters.useCompressionStrategy ? '.lz4' : ''} /data/cache/$CACHE_KEY/build/build-$BUILD_GUID_TARGET.tar${orchestrator_1.default.buildParameters.useCompressionStrategy ? '.lz4' : ''} || true
+      aws $ENDPOINT_ARGS s3 cp --no-progress --only-show-errors s3://${orchestrator_1.default.buildParameters.awsStackName}/orchestrator-cache/$CACHE_KEY/build/build-$BUILD_GUID_TARGET.tar${orchestrator_1.default.buildParameters.useCompressionStrategy ? '.lz4' : ''} /data/cache/$CACHE_KEY/build/build-$BUILD_GUID_TARGET.tar${orchestrator_1.default.buildParameters.useCompressionStrategy ? '.lz4' : ''} || true
     else
       echo "AWS CLI not available, skipping aws-s3-pull-build"
     fi
@@ -9479,9 +9545,9 @@ class ContainerHookService {
       fi
       ENDPOINT_ARGS=""
       if [ -n "$AWS_S3_ENDPOINT" ]; then ENDPOINT_ARGS="--endpoint-url $AWS_S3_ENDPOINT"; fi
-      aws $ENDPOINT_ARGS s3 cp --recursive /data/cache/$CACHE_KEY/lfs s3://${orchestrator_1.default.buildParameters.awsStackName}/orchestrator-cache/$CACHE_KEY/lfs || true
+      aws $ENDPOINT_ARGS s3 cp --no-progress --only-show-errors --recursive /data/cache/$CACHE_KEY/lfs s3://${orchestrator_1.default.buildParameters.awsStackName}/orchestrator-cache/$CACHE_KEY/lfs || true
       rm -r /data/cache/$CACHE_KEY/lfs || true
-      aws $ENDPOINT_ARGS s3 cp --recursive /data/cache/$CACHE_KEY/Library s3://${orchestrator_1.default.buildParameters.awsStackName}/orchestrator-cache/$CACHE_KEY/Library || true
+      aws $ENDPOINT_ARGS s3 cp --no-progress --only-show-errors --recursive /data/cache/$CACHE_KEY/Library s3://${orchestrator_1.default.buildParameters.awsStackName}/orchestrator-cache/$CACHE_KEY/Library || true
       rm -r /data/cache/$CACHE_KEY/Library || true
     else
       echo "AWS CLI not available, skipping aws-s3-upload-cache"
@@ -9521,7 +9587,7 @@ class ContainerHookService {
       if [ -n "$LS_OUTPUT1" ] && [ "$LS_OUTPUT1" != "" ]; then
         OBJECT1="$(echo "$LS_OUTPUT1" | sort | tail -n 1 | awk '{print $4}' || '')"
         if [ -n "$OBJECT1" ] && [ "$OBJECT1" != "" ]; then
-          aws $ENDPOINT_ARGS s3 cp s3://$BUCKET1$OBJECT1 /data/cache/$CACHE_KEY/Library/ 2>/dev/null || true
+          aws $ENDPOINT_ARGS s3 cp --no-progress --only-show-errors s3://$BUCKET1$OBJECT1 /data/cache/$CACHE_KEY/Library/ 2>/dev/null || true
         fi
       fi
       BUCKET2="${orchestrator_1.default.buildParameters.awsStackName}/orchestrator-cache/$CACHE_KEY/lfs/"
@@ -9530,7 +9596,7 @@ class ContainerHookService {
       if [ -n "$LS_OUTPUT2" ] && [ "$LS_OUTPUT2" != "" ]; then
         OBJECT2="$(echo "$LS_OUTPUT2" | sort | tail -n 1 | awk '{print $4}' || '')"
         if [ -n "$OBJECT2" ] && [ "$OBJECT2" != "" ]; then
-          aws $ENDPOINT_ARGS s3 cp s3://$BUCKET2$OBJECT2 /data/cache/$CACHE_KEY/lfs/ 2>/dev/null || true
+          aws $ENDPOINT_ARGS s3 cp --no-progress --only-show-errors s3://$BUCKET2$OBJECT2 /data/cache/$CACHE_KEY/lfs/ 2>/dev/null || true
         fi
       fi
     else

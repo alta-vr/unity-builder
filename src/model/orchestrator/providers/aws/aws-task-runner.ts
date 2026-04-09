@@ -16,6 +16,14 @@ import { AwsClientFactory } from './aws-client-factory';
 
 class AWSTaskRunner {
   private static readonly encodedUnderscore = `$252F`;
+  private static readonly maxContainerOverridesLength = 8192;
+  private static readonly containerOverridesWarningLength = 7000;
+  private static readonly activationSecretEnvironmentNames = new Set([
+    'UNITY_EMAIL',
+    'UNITY_PASSWORD',
+    'UNITY_SERIAL',
+    'UNITY_LICENSE',
+  ]);
 
   private static serializedLength(value: unknown): number {
     const serialized = JSON.stringify(value);
@@ -25,6 +33,43 @@ class AWSTaskRunner {
 
   private static isSensitiveEnvironmentName(name: string): boolean {
     return /(token|secret|password|key|license|serial|email)/i.test(name);
+  }
+
+  private static shouldDuplicateSecretAsEnvironment(secret: OrchestratorSecret): boolean {
+    return AWSTaskRunner.activationSecretEnvironmentNames.has(secret.EnvironmentVariable);
+  }
+
+  private static mergeEnvironmentVariables(
+    environment: OrchestratorEnvironmentVariable[],
+    secrets: OrchestratorSecret[],
+  ): Array<{ name: string; value: string }> {
+    const mergedEnvironment = new Map<string, string>();
+
+    for (const variable of environment) {
+      mergedEnvironment.set(variable.name, variable.value);
+    }
+
+    for (const secret of secrets.filter((entry) => AWSTaskRunner.shouldDuplicateSecretAsEnvironment(entry))) {
+      mergedEnvironment.set(secret.EnvironmentVariable, secret.ParameterValue);
+    }
+
+    return [...mergedEnvironment.entries()].map(([name, value]) => ({ name, value }));
+  }
+
+  private static getOverridesSizeSummary(overrides: { containerOverrides: unknown[] }, secrets: OrchestratorSecret[]) {
+    const duplicatedSecrets = secrets
+      .filter((entry) => AWSTaskRunner.shouldDuplicateSecretAsEnvironment(entry))
+      .map((entry) => entry.EnvironmentVariable);
+
+    return {
+      limit: AWSTaskRunner.maxContainerOverridesLength,
+      overridesSerializedLength: AWSTaskRunner.serializedLength(overrides),
+      containerOverridesSerializedLength: AWSTaskRunner.serializedLength(overrides.containerOverrides),
+      taskDefinitionSecretCount: secrets.length,
+      duplicatedSecretEnvironmentNames: duplicatedSecrets,
+      duplicatedSecretCount: duplicatedSecrets.length,
+      containerOverrides: AWSTaskRunner.getContainerOverrideSizeSummary(overrides.containerOverrides),
+    };
   }
 
   private static getContainerOverrideSizeSummary(containerOverrides: unknown[]) {
@@ -129,25 +174,24 @@ class AWSTaskRunner {
     // Transform localhost endpoints for container environment
     const transformedEnvironment = AWSTaskRunner.transformEndpointsForContainer(environment);
 
-    // Merge secrets into environment as plain env vars, matching docker and k8s provider behavior.
-    // This ensures UNITY_EMAIL, UNITY_PASSWORD, UNITY_SERIAL reach the container reliably
-    // without depending on CloudFormation Secrets Manager resolution.
-    const secretsAsEnvironment = secrets.map((s) => ({ name: s.EnvironmentVariable, value: s.ParameterValue }));
-    const mergedEnvironment = [...transformedEnvironment, ...secretsAsEnvironment];
+    // Only duplicate the Unity activation secrets into overrides.
+    // ECS task-definition secret injection handles the rest, and keeping this list narrow
+    // avoids hitting the 8192-byte override limit.
+    const mergedEnvironment = AWSTaskRunner.mergeEnvironmentVariables(transformedEnvironment, secrets);
+    const containerOverrides = [
+      {
+        name: taskDef.taskDefStackName,
+        environment: mergedEnvironment,
+        command: ['-c', CommandHookService.ApplyHooksToCommands(commands, Orchestrator.buildParameters)],
+      },
+    ];
+    const overrides = { containerOverrides };
 
     const runParameters = {
       cluster,
       taskDefinition,
       platformVersion: '1.4.0',
-      overrides: {
-        containerOverrides: [
-          {
-            name: taskDef.taskDefStackName,
-            environment: mergedEnvironment,
-            command: ['-c', CommandHookService.ApplyHooksToCommands(commands, Orchestrator.buildParameters)],
-          },
-        ],
-      },
+      overrides,
       launchType: 'FARGATE',
       networkConfiguration: {
         awsvpcConfiguration: {
@@ -158,21 +202,14 @@ class AWSTaskRunner {
       },
     };
 
-    if (JSON.stringify(runParameters.overrides.containerOverrides).length > 8192) {
+    const overridesSizeSummary = AWSTaskRunner.getOverridesSizeSummary(overrides, secrets);
+    if (overridesSizeSummary.overridesSerializedLength >= AWSTaskRunner.containerOverridesWarningLength) {
       OrchestratorLogger.log(
-        `ECS containerOverrides size summary: ${JSON.stringify(
-          {
-            limit: 8192,
-            totalSerializedLength: AWSTaskRunner.serializedLength(runParameters.overrides.containerOverrides),
-            taskDefinitionSecretCount: secrets.length,
-            containerOverrides: AWSTaskRunner.getContainerOverrideSizeSummary(
-              runParameters.overrides.containerOverrides,
-            ),
-          },
-          undefined,
-          2,
-        )}`,
+        `ECS containerOverrides size summary: ${JSON.stringify(overridesSizeSummary, undefined, 2)}`,
       );
+    }
+
+    if (overridesSizeSummary.overridesSerializedLength > AWSTaskRunner.maxContainerOverridesLength) {
       throw new Error(`Container Overrides length must be at most 8192`);
     }
 
