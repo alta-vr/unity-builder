@@ -142,6 +142,9 @@ echo "CACHE_KEY=$CACHE_KEY"`;
   private static BuildCommands(builderPath: string, isContainerized: boolean) {
     const distFolder = path.join(OrchestratorFolders.builderPathAbsolute, 'dist');
     const ubuntuPlatformsFolder = path.join(OrchestratorFolders.builderPathAbsolute, 'dist', 'platforms', 'ubuntu');
+    const containerizedBuildScript = OrchestratorFolders.ToLinuxFolder(
+      path.join(ubuntuPlatformsFolder, 'steps', 'run_containerized_orchestrator_build.sh'),
+    );
 
     if (isContainerized) {
       if (Orchestrator.buildParameters.providerStrategy === 'local-docker') {
@@ -222,34 +225,8 @@ echo "CACHE_KEY=$CACHE_KEY"`;
 
       // prettier-ignore
       return `
-    mkdir -p ${`${OrchestratorFolders.ToLinuxFolder(OrchestratorFolders.projectBuildFolderAbsolute)}/build`}
-    cd ${OrchestratorFolders.ToLinuxFolder(OrchestratorFolders.projectPathAbsolute)}
-    cp -r "${OrchestratorFolders.ToLinuxFolder(path.join(distFolder, 'default-build-script'))}" "/UnityBuilderAction"
-    cp -r "${OrchestratorFolders.ToLinuxFolder(path.join(ubuntuPlatformsFolder, 'entrypoint.sh'))}" "/entrypoint.sh"
-    mkdir -p "/steps"
-    cp -r "${OrchestratorFolders.ToLinuxFolder(path.join(ubuntuPlatformsFolder, 'steps'))}/." "/steps"
-    chmod -R +x "/entrypoint.sh"
-    chmod -R +x "/steps"
     ORCHESTRATOR_TIMEOUT_MINUTES="${Orchestrator.buildParameters.orchestratorTimeout}"
-    /steps/run_build_with_timeout.sh "${builderPath}" "/home/job-log.txt"
-    BUILD_EXIT_CODE=$?
-    # Run post-build and capture output to both stdout (for kubectl logs) and log file
-    # Note: Post-build may clean up the builder directory, so write output directly
-    set +e
-    if [ -f "${builderPath}" ]; then
-      # Use tee to write to both stdout and log file for K8s kubectl logs
-      node ${builderPath} -m remote-cli-post-build 2>&1 | tee -a /home/job-log.txt || echo "Post-build command completed with warnings" | tee -a /home/job-log.txt
-    else
-      echo "Builder path not found, skipping post-build" | tee -a /home/job-log.txt
-    fi
-    # Write "Collected Logs" message for K8s (needed for test assertions)
-    # Write to both stdout and log file to ensure it's captured even if kubectl has issues
-    # Also write to PVC (/data) as backup in case pod is OOM-killed and ephemeral filesystem is lost
-    echo "Collected Logs" | tee -a /home/job-log.txt /data/job-log.txt 2>/dev/null || echo "Collected Logs" | tee -a /home/job-log.txt
-    # Write end markers to both stdout and log file (builder might be cleaned up by post-build)
-    echo "end of orchestrator job" | tee -a /home/job-log.txt
-    echo "---${Orchestrator.buildParameters.logId}" | tee -a /home/job-log.txt
-    exit "$BUILD_EXIT_CODE"`;
+    bash "${containerizedBuildScript}" "${builderPath}" "/home/job-log.txt"`;
     }
 
     // prettier-ignore

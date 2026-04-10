@@ -305,15 +305,31 @@ export class RemoteClient {
     RemoteClientLogger.log(`Cloning the repository being built:`);
     await OrchestratorSystem.Run(`git config --global filter.lfs.smudge "git-lfs smudge --skip -- %f"`);
     await OrchestratorSystem.Run(`git config --global filter.lfs.process "git-lfs filter-process --skip"`);
+    const targetSha = Orchestrator.buildParameters.gitSha;
+    const targetBranch = Orchestrator.buildParameters.branch;
     try {
       const depthArgument = OrchestratorOptions.cloneDepth !== '0' ? `--depth ${OrchestratorOptions.cloneDepth}` : '';
+      const cloneBranchArgument =
+        targetBranch && !targetBranch.startsWith('pull/') ? `-b ${targetBranch} --single-branch` : '';
       await OrchestratorSystem.Run(
-        `git clone ${depthArgument} ${OrchestratorFolders.targetBuildRepoUrl} ${path.basename(
+        `git clone ${depthArgument} ${cloneBranchArgument} ${OrchestratorFolders.targetBuildRepoUrl} ${path.basename(
           OrchestratorFolders.repoPathAbsolute,
         )}`.trim(),
       );
     } catch (error: any) {
-      throw error;
+      if (targetBranch && !targetBranch.startsWith('pull/')) {
+        RemoteClientLogger.logWarning(
+          `Failed to clone source repository branch ${targetBranch}; falling back to default branch clone`,
+        );
+        const depthArgument = OrchestratorOptions.cloneDepth !== '0' ? `--depth ${OrchestratorOptions.cloneDepth}` : '';
+        await OrchestratorSystem.Run(
+          `git clone ${depthArgument} ${OrchestratorFolders.targetBuildRepoUrl} ${path.basename(
+            OrchestratorFolders.repoPathAbsolute,
+          )}`.trim(),
+        );
+      } else {
+        throw error;
+      }
     }
     process.chdir(OrchestratorFolders.repoPathAbsolute);
     await OrchestratorSystem.Run(`git lfs install`);
@@ -331,9 +347,12 @@ export class RemoteClient {
           `git fetch origin +refs/pull/${prNumber}/merge:refs/remotes/origin/pull/${prNumber}/merge +refs/pull/${prNumber}/head:refs/remotes/origin/pull/${prNumber}/head || true`,
         );
       }
+    } else if (targetBranch) {
+      await OrchestratorSystem.Run(
+        `git fetch origin ${targetBranch}:${targetBranch} || git fetch origin ${targetBranch} || true`,
+      );
     }
-    const targetSha = Orchestrator.buildParameters.gitSha;
-    const targetBranch = Orchestrator.buildParameters.branch;
+
     if (targetSha) {
       try {
         await OrchestratorSystem.Run(`git checkout ${targetSha}`);

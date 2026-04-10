@@ -8071,12 +8071,22 @@ class RemoteClient {
         remote_client_logger_1.RemoteClientLogger.log(`Cloning the repository being built:`);
         await orchestrator_system_1.OrchestratorSystem.Run(`git config --global filter.lfs.smudge "git-lfs smudge --skip -- %f"`);
         await orchestrator_system_1.OrchestratorSystem.Run(`git config --global filter.lfs.process "git-lfs filter-process --skip"`);
+        const targetSha = orchestrator_1.default.buildParameters.gitSha;
+        const targetBranch = orchestrator_1.default.buildParameters.branch;
         try {
             const depthArgument = orchestrator_options_1.default.cloneDepth !== '0' ? `--depth ${orchestrator_options_1.default.cloneDepth}` : '';
-            await orchestrator_system_1.OrchestratorSystem.Run(`git clone ${depthArgument} ${orchestrator_folders_1.OrchestratorFolders.targetBuildRepoUrl} ${node_path_1.default.basename(orchestrator_folders_1.OrchestratorFolders.repoPathAbsolute)}`.trim());
+            const cloneBranchArgument = targetBranch && !targetBranch.startsWith('pull/') ? `-b ${targetBranch} --single-branch` : '';
+            await orchestrator_system_1.OrchestratorSystem.Run(`git clone ${depthArgument} ${cloneBranchArgument} ${orchestrator_folders_1.OrchestratorFolders.targetBuildRepoUrl} ${node_path_1.default.basename(orchestrator_folders_1.OrchestratorFolders.repoPathAbsolute)}`.trim());
         }
         catch (error) {
-            throw error;
+            if (targetBranch && !targetBranch.startsWith('pull/')) {
+                remote_client_logger_1.RemoteClientLogger.logWarning(`Failed to clone source repository branch ${targetBranch}; falling back to default branch clone`);
+                const depthArgument = orchestrator_options_1.default.cloneDepth !== '0' ? `--depth ${orchestrator_options_1.default.cloneDepth}` : '';
+                await orchestrator_system_1.OrchestratorSystem.Run(`git clone ${depthArgument} ${orchestrator_folders_1.OrchestratorFolders.targetBuildRepoUrl} ${node_path_1.default.basename(orchestrator_folders_1.OrchestratorFolders.repoPathAbsolute)}`.trim());
+            }
+            else {
+                throw error;
+            }
         }
         process.chdir(orchestrator_folders_1.OrchestratorFolders.repoPathAbsolute);
         await orchestrator_system_1.OrchestratorSystem.Run(`git lfs install`);
@@ -8092,8 +8102,9 @@ class RemoteClient {
                 await orchestrator_system_1.OrchestratorSystem.Run(`git fetch origin +refs/pull/${prNumber}/merge:refs/remotes/origin/pull/${prNumber}/merge +refs/pull/${prNumber}/head:refs/remotes/origin/pull/${prNumber}/head || true`);
             }
         }
-        const targetSha = orchestrator_1.default.buildParameters.gitSha;
-        const targetBranch = orchestrator_1.default.buildParameters.branch;
+        else if (targetBranch) {
+            await orchestrator_system_1.OrchestratorSystem.Run(`git fetch origin ${targetBranch}:${targetBranch} || git fetch origin ${targetBranch} || true`);
+        }
         if (targetSha) {
             try {
                 await orchestrator_system_1.OrchestratorSystem.Run(`git checkout ${targetSha}`);
@@ -9997,6 +10008,7 @@ echo "CACHE_KEY=$CACHE_KEY"`;
     static BuildCommands(builderPath, isContainerized) {
         const distFolder = node_path_1.default.join(orchestrator_folders_1.OrchestratorFolders.builderPathAbsolute, 'dist');
         const ubuntuPlatformsFolder = node_path_1.default.join(orchestrator_folders_1.OrchestratorFolders.builderPathAbsolute, 'dist', 'platforms', 'ubuntu');
+        const containerizedBuildScript = orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(ubuntuPlatformsFolder, 'steps', 'run_containerized_orchestrator_build.sh'));
         if (isContainerized) {
             if (orchestrator_1.default.buildParameters.providerStrategy === 'local-docker') {
                 // prettier-ignore
@@ -10075,34 +10087,8 @@ echo "CACHE_KEY=$CACHE_KEY"`;
             }
             // prettier-ignore
             return `
-    mkdir -p ${`${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(orchestrator_folders_1.OrchestratorFolders.projectBuildFolderAbsolute)}/build`}
-    cd ${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(orchestrator_folders_1.OrchestratorFolders.projectPathAbsolute)}
-    cp -r "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(distFolder, 'default-build-script'))}" "/UnityBuilderAction"
-    cp -r "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(ubuntuPlatformsFolder, 'entrypoint.sh'))}" "/entrypoint.sh"
-    mkdir -p "/steps"
-    cp -r "${orchestrator_folders_1.OrchestratorFolders.ToLinuxFolder(node_path_1.default.join(ubuntuPlatformsFolder, 'steps'))}/." "/steps"
-    chmod -R +x "/entrypoint.sh"
-    chmod -R +x "/steps"
     ORCHESTRATOR_TIMEOUT_MINUTES="${orchestrator_1.default.buildParameters.orchestratorTimeout}"
-    /steps/run_build_with_timeout.sh "${builderPath}" "/home/job-log.txt"
-    BUILD_EXIT_CODE=$?
-    # Run post-build and capture output to both stdout (for kubectl logs) and log file
-    # Note: Post-build may clean up the builder directory, so write output directly
-    set +e
-    if [ -f "${builderPath}" ]; then
-      # Use tee to write to both stdout and log file for K8s kubectl logs
-      node ${builderPath} -m remote-cli-post-build 2>&1 | tee -a /home/job-log.txt || echo "Post-build command completed with warnings" | tee -a /home/job-log.txt
-    else
-      echo "Builder path not found, skipping post-build" | tee -a /home/job-log.txt
-    fi
-    # Write "Collected Logs" message for K8s (needed for test assertions)
-    # Write to both stdout and log file to ensure it's captured even if kubectl has issues
-    # Also write to PVC (/data) as backup in case pod is OOM-killed and ephemeral filesystem is lost
-    echo "Collected Logs" | tee -a /home/job-log.txt /data/job-log.txt 2>/dev/null || echo "Collected Logs" | tee -a /home/job-log.txt
-    # Write end markers to both stdout and log file (builder might be cleaned up by post-build)
-    echo "end of orchestrator job" | tee -a /home/job-log.txt
-    echo "---${orchestrator_1.default.buildParameters.logId}" | tee -a /home/job-log.txt
-    exit "$BUILD_EXIT_CODE"`;
+    bash "${containerizedBuildScript}" "${builderPath}" "/home/job-log.txt"`;
         }
         // prettier-ignore
         return `
